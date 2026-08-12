@@ -47,26 +47,25 @@ const fetchCommentsForVideo = async (videoId) => {
 
 const getCommentsAnalysis = async (productName) => {
   const videoIds = await searchVideos(`${productName} review`);
-  let allComments = [];
 
-  for (const videoId of videoIds) {
-    const comments = await fetchCommentsForVideo(videoId);
-    allComments.push(...comments);
-  }
+  const commentsPromises = videoIds.map(id => fetchCommentsForVideo(id));
+  const commentsArrays = await Promise.all(commentsPromises);
+  const allComments = commentsArrays.flat().slice(0, 5000);
 
-  const prompt = `You are an assistant that gives product buying advice. Analyze these YouTube comments and tell if the product is worth buying. Give:
+  const summary = await summarizeProduct(productName, allComments);
+
+  const prompt = `You are an assistant that gives product buying advice. Analyze these YouTube comment summaries and tell if the product is worth buying. Give:
 - A recommendation (Buy / Skip / Neutral)
 - Top 3 Pros
 - Top 3 Cons
 - Confidence Score (1-10)
 
-Comments:
+Summaries:
 """
-${allComments.join("\n")}
+${summary}
 """`;
 
-
-  console.log("allComments:", allComments.length);
+  console.log("allComments analyzed length:", allComments.length);
 
   const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
   const result = await model.generateContent(prompt);
@@ -77,74 +76,11 @@ ${allComments.join("\n")}
   return { analysis: text };
 };
 
-// const compareTwoProducts = async (productA, productB) => {
-//   const videoIdsA = await searchVideos(`${productA} review`);
-//   const videoIdsB = await searchVideos(`${productB} review`);
+const summarizeProduct = async (productName, comments) => {
+  const cleaned = comments
+    .filter((c) => c.length > 20)
+    .map((c) => c.replace(/\s+/g, " ").trim());
 
-//   let commentsA = [], commentsB = [];
-
-//   for (const id of videoIdsA) {
-//     const comments = await fetchCommentsForVideo(id);
-//     commentsA.push(...comments);
-//   }
-//   console.log("commentsA:", commentsA.length);
-//   for (const id of videoIdsB) {
-//     const comments = await fetchCommentsForVideo(id);
-//     commentsB.push(...comments);
-//   }
-//   console.log("commentsB:", commentsB.length);
-
-//   // Limit and clean
-//   const clean = (arr) => arr.filter(c => c.length > 20).slice(0, 400);
-//   const commentsAJoined = clean(commentsA).join("\n");
-//   const commentsBJoined = clean(commentsB).join("\n");
-
-//   const prompt = `
-// You are a product decision assistant. You will be given YouTube user comments for two products.
-
-// Your job is to:
-// 1. Analyze the pros and cons based ONLY on the comments
-// 2. Compare key features: 📷 Camera, 🔋 Battery, ⚡ Performance, 📱 Display, 🔧 Build
-// 3. Give a **final decision**: Which product should the user buy and why?
-
-// Rules:
-// - Be confident.
-// - Do not say “it depends”.
-// - Choose **only one** product as the better option for most people.
-// - At the end, write: "✅ You should buy: [PRODUCT NAME]"
-
-// ---
-
-// 📦 Product A: ${productA}
-// Comments:
-// """
-// ${commentsAJoined}
-// """
-
-// 📦 Product B: ${productB}
-// Comments:
-// """
-// ${commentsBJoined}
-// """
-// `;
-//   console.log("commentsA:", commentsA.length, "commentsB:", commentsB.length);
-//   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-//   const result = await model.generateContent(prompt);
-//   const text = result.response.text();
-//   console.log("AI Response:\n", text);
-//   return { comparison: text };
-// };
-
-const chunkArray = (arr, size) => {
-  const result = [];
-  for (let i = 0; i < arr.length; i += size) {
-    result.push(arr.slice(i, i + size));
-  }
-  return result;
-};
-
-const summarizeChunk = async (commentsChunk, productName, chunkIndex) => {
-  const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
   const prompt = `
 You are analyzing user reviews for a product: ${productName}.
 Below are user comments. Summarize the most important insights.
@@ -155,30 +91,16 @@ Focus on:
 - Common Complaints or Praise
 - Feature mentions (Camera, Battery, Performance, Display, Build)
 
-Comments (Chunk ${chunkIndex}):
+Comments:
 """
-${commentsChunk.join("\n")}
+${cleaned.join("\n")}
 """`;
 
+  console.log(`Summarizing ${cleaned.length} comments for ${productName} in a single request...`);
+
+  const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
   const result = await model.generateContent(prompt);
   return result.response.text();
-};
-
-const summarizeProduct = async (productName, comments) => {
-  const cleaned = comments
-    .filter((c) => c.length > 20)
-    .map((c) => c.replace(/\s+/g, " ").trim());
-
-  const chunks = chunkArray(cleaned, 500);
-  const summaries = [];
-
-  for (let i = 0; i < chunks.length; i++) {
-    console.log(`Summarizing chunk ${i + 1} of ${chunks.length} for ${productName}...`);
-    const summary = await summarizeChunk(chunks[i], productName, i + 1);
-    summaries.push(summary);
-  }
-
-  return summaries.join("\n\n");
 };
 
 const compareSummaries = async (summaryA, summaryB, productA, productB) => {
@@ -214,27 +136,28 @@ ${summaryB}
 };
 
 const compareTwoProducts = async (productA, productB) => {
-  const videoIdsA = await searchVideos(`${productA} review`);
-  const videoIdsB = await searchVideos(`${productB} review`);
+  // Run searches concurrently
+  const [videoIdsA, videoIdsB] = await Promise.all([
+    searchVideos(`${productA} review`),
+    searchVideos(`${productB} review`)
+  ]);
 
-  let commentsA = [];
-  let commentsB = [];
+  const fetchAllComments = async (videoIds) => {
+    const arrays = await Promise.all(videoIds.map(id => fetchCommentsForVideo(id)));
+    return arrays.flat().slice(0, 5000);
+  };
 
-  for (const id of videoIdsA) {
-    const comments = await fetchCommentsForVideo(id);
-    commentsA.push(...comments);
-  }
+  // Fetch all comments for both products concurrently
+  const [commentsA, commentsB] = await Promise.all([
+    fetchAllComments(videoIdsA),
+    fetchAllComments(videoIdsB)
+  ]);
 
-  for (const id of videoIdsB) {
-    const comments = await fetchCommentsForVideo(id);
-    commentsB.push(...comments);
-  }
-
-  commentsA = commentsA.slice(0, 5000);
-  commentsB = commentsB.slice(0, 5000);
-
-  const summaryA = await summarizeProduct(productA, commentsA);
-  const summaryB = await summarizeProduct(productB, commentsB);
+  // Summarize both products concurrently
+  const [summaryA, summaryB] = await Promise.all([
+    summarizeProduct(productA, commentsA),
+    summarizeProduct(productB, commentsB)
+  ]);
 
   const finalDecision = await compareSummaries(summaryA, summaryB, productA, productB);
 
