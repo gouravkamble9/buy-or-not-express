@@ -54,11 +54,14 @@ const getCommentsAnalysis = async (productName) => {
 
   const summary = await summarizeProduct(productName, allComments);
 
-  const prompt = `You are an assistant that gives product buying advice. Analyze these YouTube comment summaries and tell if the product is worth buying. Give:
-- A recommendation (Buy / Skip / Neutral)
-- Top 3 Pros
-- Top 3 Cons
-- Confidence Score (1-10)
+  const prompt = `You are an assistant that gives product buying advice. Analyze these YouTube comment summaries and tell if the product is worth buying.
+Return a valid JSON object with exactly this structure:
+{
+  "recommendation": "Buy" | "Skip" | "Neutral",
+  "pros": ["Pro 1", "Pro 2", "Pro 3"],
+  "cons": ["Con 1", "Con 2", "Con 3"],
+  "confidenceScore": 8
+}
 
 Summaries:
 """
@@ -67,13 +70,24 @@ ${summary}
 
   console.log("allComments analyzed length:", allComments.length);
 
-  const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
+  const model = genAI.getGenerativeModel({
+    model: "gemini-3.6-flash",
+    generationConfig: { responseMimeType: "application/json" }
+  });
   const result = await model.generateContent(prompt);
   const text = result.response.text();
 
   console.log("AI Response:\n", text);
 
-  return { analysis: text };
+  let parsedAnalysis;
+  try {
+    parsedAnalysis = JSON.parse(text);
+  } catch (err) {
+    console.error("Failed to parse AI JSON response:", err);
+    parsedAnalysis = { error: "Failed to parse JSON", rawText: text };
+  }
+
+  return parsedAnalysis;
 };
 
 const summarizeProduct = async (productName, comments) => {
@@ -105,34 +119,149 @@ ${cleaned.join("\n")}
 
 const compareSummaries = async (summaryA, summaryB, productA, productB) => {
   const prompt = `
-You are a product recommendation expert.
-Compare these two product summaries and make a final decision on which product is better overall.
+  You are an expert product comparison and buying advisor.
 
-Focus on:
-- Camera
-- Battery
-- Performance
-- Display
-- Build
-- Any serious complaints
+Your task is to compare two products using ONLY the information provided in their summaries.
 
-Only choose one product as the better choice. End with:
-✅ You should buy: [Product Name]
+IMPORTANT RULES:
+- Do not invent specifications, features, prices, or facts.
+- Base your decision only on the provided summaries.
+- Compare both products fairly.
+- Choose exactly ONE overall winner.
+- A category winner can be "Tie" if the evidence is genuinely equal.
+- Keep explanations concise and useful for a buyer.
+- Do not use Markdown.
+- Return ONLY valid JSON.
+- Do not wrap the JSON in \`\`\`json or any other code fence.
 
----
-📦 Product A: ${productA}
-Summary:
+PRODUCT A:
+${productA}
+
+SUMMARY A:
 ${summaryA}
 
 ---
-📦 Product B: ${productB}
-Summary:
+
+PRODUCT B:
+${productB}
+
+SUMMARY B:
 ${summaryB}
+
+Return JSON with exactly this structure:
+
+{
+  "winner": "Product Name",
+  "confidence": 8.5,
+  "reason": "Short explanation of why this product is the better overall choice.",
+
+  "comparison": {
+    "camera": {
+      "winner": "Product Name or Tie",
+      "scoreA": 8.5,
+      "scoreB": 9.0,
+      "summary": "Short comparison of camera capabilities, strengths and weaknesses."
+    },
+
+    "battery": {
+      "winner": "Product Name or Tie",
+      "scoreA": 8.0,
+      "scoreB": 8.5,
+      "summary": "Short comparison of battery life and charging."
+    },
+
+    "performance": {
+      "winner": "Product Name or Tie",
+      "scoreA": 9.0,
+      "scoreB": 9.0,
+      "summary": "Short comparison of performance."
+    },
+
+    "display": {
+      "winner": "Product Name or Tie",
+      "scoreA": 7.0,
+      "scoreB": 9.5,
+      "summary": "Short comparison of display quality and user experience."
+    },
+
+    "build": {
+      "winner": "Product Name or Tie",
+      "scoreA": 8.5,
+      "scoreB": 9.0,
+      "summary": "Short comparison of build quality, design and ergonomics."
+    }
+  },
+
+  "products": {
+    "productA": {
+      "pros": [
+        "Top advantage",
+        "Second advantage",
+        "Third advantage"
+      ],
+      "cons": [
+        "Top disadvantage",
+        "Second disadvantage",
+        "Third disadvantage"
+      ],
+      "bestFor": [
+        "Type of user who should buy this product",
+        "Another suitable user"
+      ]
+    },
+
+    "productB": {
+      "pros": [
+        "Top advantage",
+        "Second advantage",
+        "Third advantage"
+      ],
+      "cons": [
+        "Top disadvantage",
+        "Second disadvantage",
+        "Third disadvantage"
+      ],
+      "bestFor": [
+        "Type of user who should buy this product",
+        "Another suitable user"
+      ]
+    }
+  },
+
+  "seriousComplaints": {
+    "productA": [
+      {
+        "issue": "Issue name",
+        "severity": "high",
+        "description": "Short description"
+      }
+    ],
+
+    "productB": [
+      {
+        "issue": "Issue name",
+        "severity": "medium",
+        "description": "Short description"
+      }
+    ]
+  }
+}
 `;
 
-  const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
+  const model = genAI.getGenerativeModel({
+    model: "gemini-3.6-flash",
+    generationConfig: { responseMimeType: "application/json" }
+  });
   const result = await model.generateContent(prompt);
-  return result.response.text();
+
+  let parsedDecision;
+  try {
+    parsedDecision = JSON.parse(result.response.text());
+  } catch (err) {
+    console.error("Failed to parse AI JSON response:", err);
+    parsedDecision = { error: "Failed to parse JSON", rawText: result.response.text() };
+  }
+  return parsedDecision;
 };
 
 const compareTwoProducts = async (productA, productB) => {
