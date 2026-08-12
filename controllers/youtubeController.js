@@ -1,4 +1,5 @@
-const { getCommentsAnalysis } = require("../services/youtubeService");
+const { getCommentsAnalysis } = require("../services/productInsightService");
+const { compareTwoProducts } = require("../services/compareService");
 
 exports.getProductInsight = async (req, res) => {
   const { productName } = req.body;
@@ -14,9 +15,6 @@ exports.getProductInsight = async (req, res) => {
   }
 };
 
-
-const { compareTwoProducts } = require("../services/youtubeService");
-
 exports.compareInsight = async (req, res) => {
   const { productA, productB } = req.body;
   if (!productA || !productB) {
@@ -31,4 +29,3 @@ exports.compareInsight = async (req, res) => {
     res.status(500).json({ error: "Comparison failed." });
   }
 };
-
