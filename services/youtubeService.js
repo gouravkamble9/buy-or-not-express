@@ -1,9 +1,7 @@
 const axios = require("axios");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { generateText, generateJSON } = require("../config/aiClient");
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 const searchVideos = async (query) => {
   const res = await axios.get("https://www.googleapis.com/youtube/v3/search", {
@@ -70,21 +68,12 @@ ${summary}
 
   console.log("allComments analyzed length:", allComments.length);
 
-  const model = genAI.getGenerativeModel({
-    model: "gemini-3.6-flash",
-    generationConfig: { responseMimeType: "application/json" }
-  });
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-
-  console.log("AI Response:\n", text);
-
   let parsedAnalysis;
   try {
-    parsedAnalysis = JSON.parse(text);
+    parsedAnalysis = await generateJSON(prompt);
   } catch (err) {
-    console.error("Failed to parse AI JSON response:", err);
-    parsedAnalysis = { error: "Failed to parse JSON", rawText: text };
+    console.error("Failed to generate or parse AI JSON response:", err);
+    parsedAnalysis = { error: "Failed to parse JSON" };
   }
 
   return parsedAnalysis;
@@ -112,9 +101,7 @@ ${cleaned.join("\n")}
 
   console.log(`Summarizing ${cleaned.length} comments for ${productName} in a single request...`);
 
-  const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+  return await generateText(prompt);
 };
 
 const compareSummaries = async (summaryA, summaryB, productA, productB) => {
@@ -248,18 +235,12 @@ Return JSON with exactly this structure:
 }
 `;
 
-  const model = genAI.getGenerativeModel({
-    model: "gemini-3.6-flash",
-    generationConfig: { responseMimeType: "application/json" }
-  });
-  const result = await model.generateContent(prompt);
-
   let parsedDecision;
   try {
-    parsedDecision = JSON.parse(result.response.text());
+    parsedDecision = await generateJSON(prompt);
   } catch (err) {
-    console.error("Failed to parse AI JSON response:", err);
-    parsedDecision = { error: "Failed to parse JSON", rawText: result.response.text() };
+    console.error("Failed to generate or parse AI JSON response:", err);
+    parsedDecision = { error: "Failed to parse JSON" };
   }
   return parsedDecision;
 };
@@ -290,14 +271,12 @@ const compareTwoProducts = async (productA, productB) => {
 
   const finalDecision = await compareSummaries(summaryA, summaryB, productA, productB);
 
-  console.log("Summary A:\n", summaryA);
-  console.log("Summary B:\n", summaryB);
-  console.log("Final Decision:\n", finalDecision);
+  // console.log("Summary A:\n", summaryA);
+  // console.log("Summary B:\n", summaryB);
+  // console.log("Final Decision:\n", finalDecision);
 
   return {
-    summaryA,
-    summaryB,
-    decision: finalDecision,
+    finalDecision,
   };
 };
 
